@@ -110,8 +110,8 @@ def _random_blur_or_sharpen(img: Image.Image, rng: random.Random) -> Image.Image
         radius = rng.uniform(0.5, 1.8)
         return img.filter(ImageFilter.GaussianBlur(radius))
     else:
-        percent = rng.uniform(80, 140)
-        threshold = rng.uniform(1, 4)
+        percent = int(round(rng.uniform(80, 140)))
+        threshold = int(round(rng.uniform(1, 4)))
         return img.filter(ImageFilter.UnsharpMask(radius=1.5, percent=percent, threshold=threshold))
 
 
