@@ -41,10 +41,10 @@ def _with_numpy_rng(rng: random.Random) -> np.random.Generator:
 
 
 def _random_perspective(img: Image.Image, rng: random.Random) -> Image.Image:
-    # Randomly perturb each corner to mimic off-angle captures.
+    # Randomly perturb each corner to mimic mild off-angle captures.
     width, height = img.size
-    max_shift_x = width * rng.uniform(0.02, 0.12)
-    max_shift_y = height * rng.uniform(0.02, 0.12)
+    max_shift_x = width * rng.uniform(0.01, 0.05)
+    max_shift_y = height * rng.uniform(0.01, 0.05)
 
     src = [(0, 0), (width, 0), (width, height), (0, height)]
     dst = [
@@ -75,14 +75,15 @@ def _random_crop_and_resize(img: Image.Image, rng: random.Random) -> Image.Image
     if width < 20 or height < 20:
         return img
 
-    keep_scale = rng.uniform(0.82, 0.97)
-    crop_width = int(width * keep_scale)
-    crop_height = int(height * keep_scale)
+    keep_scale_x = rng.uniform(0.96, 0.995)
+    keep_scale_y = rng.uniform(0.96, 0.995)
+    crop_width = int(width * keep_scale_x)
+    crop_height = int(height * keep_scale_y)
     if crop_width <= 0 or crop_height <= 0:
         return img
 
-    max_x = width - crop_width
-    max_y = height - crop_height
+    max_x = max(1, width - crop_width)
+    max_y = max(1, height - crop_height)
     left = rng.randint(0, max(0, max_x))
     top = rng.randint(0, max(0, max_y))
 
@@ -117,13 +118,13 @@ def _random_blur_or_sharpen(img: Image.Image, rng: random.Random) -> Image.Image
 def _add_sensor_noise(img: Image.Image, rng: random.Random) -> Image.Image:
     arr = np.asarray(img).astype(np.float32)
     np_rng = _with_numpy_rng(rng)
-    sigma = rng.uniform(3, 18)
+    sigma = rng.uniform(6, 28)
     noise = np_rng.normal(0.0, sigma, arr.shape)
     arr += noise
     # Randomly add a small percentage of salt-and-pepper noise.
     if rng.random() < 0.4:
-        pepper_fraction = rng.uniform(0.001, 0.005)
-        salt_fraction = rng.uniform(0.001, 0.005)
+        pepper_fraction = rng.uniform(0.001, 0.007)
+        salt_fraction = rng.uniform(0.001, 0.007)
         total_pixels = arr.shape[0] * arr.shape[1]
         num_pepper = int(total_pixels * pepper_fraction)
         num_salt = int(total_pixels * salt_fraction)
@@ -161,9 +162,36 @@ def _apply_vignette(img: Image.Image, rng: random.Random) -> Image.Image:
     return Image.fromarray(arr, mode="RGB")
 
 
+def _random_lighting_gradient(img: Image.Image, rng: random.Random) -> Image.Image:
+    width, height = img.size
+    arr = np.asarray(img).astype(np.float32)
+
+    # Create a smooth gradient to emulate uneven lighting from one side.
+    orientation = rng.choice(["horizontal", "vertical", "diagonal"])
+    strength = rng.uniform(0.15, 0.35)
+    bias = rng.uniform(-0.2, 0.2)
+
+    if orientation == "horizontal":
+        axis = np.linspace(-1, 1, width)
+        gradient = axis[np.newaxis, :]
+    elif orientation == "vertical":
+        axis = np.linspace(-1, 1, height)
+        gradient = axis[:, np.newaxis]
+    else:
+        x = np.linspace(-1, 1, width)
+        y = np.linspace(-1, 1, height)
+        gradient = (x[np.newaxis, :] + y[:, np.newaxis]) / 2.0
+
+    gradient = gradient + bias
+    gradient = np.clip(1.0 + strength * gradient, 0.6, 1.4)
+    arr *= gradient[..., np.newaxis]
+    arr = np.clip(arr, 0, 255).astype(np.uint8)
+    return Image.fromarray(arr, mode="RGB")
+
+
 def _jpeg_recompress(img: Image.Image, rng: random.Random) -> Image.Image:
     buffer = io.BytesIO()
-    quality = rng.randint(35, 92)
+    quality = rng.randint(30, 85)
     subsampling = 0 if rng.random() < 0.5 else 2
     img.save(buffer, format="JPEG", quality=quality, subsampling=subsampling, optimize=False)
     buffer.seek(0)
@@ -178,25 +206,28 @@ def augment_image(img: Image.Image, seed_rng: random.Random) -> Image.Image:
     """
     out = img.copy()
 
-    if seed_rng.random() < 0.85:
+    if seed_rng.random() < 0.45:
         out = _random_perspective(out, seed_rng)
 
-    if seed_rng.random() < 0.75:
+    if seed_rng.random() < 0.65:
         out = _random_crop_and_resize(out, seed_rng)
 
-    if seed_rng.random() < 0.8:
+    if seed_rng.random() < 0.9:
         out = _random_color_jitter(out, seed_rng)
 
-    if seed_rng.random() < 0.6:
+    if seed_rng.random() < 0.7:
+        out = _random_lighting_gradient(out, seed_rng)
+
+    if seed_rng.random() < 0.55:
         out = _random_blur_or_sharpen(out, seed_rng)
 
-    if seed_rng.random() < 0.7:
+    if seed_rng.random() < 0.95:
         out = _add_sensor_noise(out, seed_rng)
 
     if seed_rng.random() < 0.5:
         out = _apply_vignette(out, seed_rng)
 
-    if seed_rng.random() < 0.8:
+    if seed_rng.random() < 0.95:
         out = _jpeg_recompress(out, seed_rng)
 
     return out
